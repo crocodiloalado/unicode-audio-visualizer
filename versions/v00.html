@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Unicode Audio Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
+  }
+  #container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; }
+
+  #ui {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: rgba(0,0,0,0.75);
+    padding: 8px 20px;
+    border-radius: 20px;
+    border: 0.5px solid rgba(255,255,255,0.15);
+    z-index: 10;
+  }
+  #ui label {
+    color: rgba(255,255,255,0.4);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  #file-btn {
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.8);
+    padding: 5px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  #file-btn:hover { border-color: #fff; color: #fff; }
+  #file-input { display: none; }
+  #status {
+    color: rgba(255,255,255,0.3);
+    font-size: 10px;
+    letter-spacing: 1px;
+    min-width: 130px;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+  }
+  #song-name {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.2);
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 80vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+</head>
+<body>
+
+<div id="song-name">— demo mode —</div>
+<canvas id="viz"></canvas>
+<div id="ui">
+  <label>Áudio</label>
+  <button id="file-btn" onclick="document.getElementById('file-input').click()">Carregar música</button>
+  <input type="file" id="file-input" accept="audio/mpeg,audio/mp3,audio/flac,audio/wav,audio/x-wav,audio/ogg,audio/*">
+  <div id="status">animação demo ♦</div>
+</div>
+
+<script>
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const songNameEl = document.getElementById('song-name');
+
+let CW, CH, cx, cy, maxR;
+let COLS = 90, ROWS = 50;
+let CELL_W, CELL_H;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  CW = canvas.width;
+  CH = canvas.height;
+  cx = CW / 2;
+  cy = CH / 2;
+  maxR = Math.min(CW, CH) * 0.46;
+  CELL_W = CW / COLS;
+  CELL_H = CH / ROWS;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- Audio ---
+let audioCtx, analyser, source;
+let isPlaying = false;
+let fftData = new Float32Array(256).fill(0);
+let smoothBass = 0, smoothMid = 0, smoothHigh = 0, smoothAmp = 0;
+let beatPulse = 0;
+let simT = 0;
+
+function getSimFFT() {
+  simT += 0.03;
+  const arr = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const f = i / 256;
+    arr[i] = Math.max(0,
+      Math.sin(simT * 2.1 + f * 9) * 0.3 +
+      Math.sin(simT * 0.8 + f * 4) * 0.4 +
+      Math.cos(simT * 1.5 + f * 14) * 0.2 +
+      Math.random() * 0.12 +
+      (i < 18 ? Math.abs(Math.sin(simT * 2.8)) * 0.6 : 0)
+    ) * 0.85;
+  }
+  return arr;
+}
+
+function updateAudio() {
+  if (analyser && isPlaying) {
+    const raw = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(raw);
+    for (let i = 0; i < 256; i++) {
+      fftData[i] = raw[Math.floor(i * raw.length / 256)] / 255;
+    }
+  } else {
+    fftData = getSimFFT();
+  }
+
+  let b = 0, m = 0, h = 0;
+  for (let i = 0; i < 18; i++) b += fftData[i]; b /= 18;
+  for (let i = 18; i < 90; i++) m += fftData[i]; m /= 72;
+  for (let i = 90; i < 256; i++) h += fftData[i]; h /= 166;
+
+  smoothBass += (b - smoothBass) * 0.22;
+  smoothMid  += (m - smoothMid)  * 0.16;
+  smoothHigh += (h - smoothHigh) * 0.1;
+  const raw = smoothBass * 0.5 + smoothMid * 0.3 + smoothHigh * 0.2;
+  smoothAmp  += (raw - smoothAmp) * 0.18;
+
+  if (b > smoothBass * 1.55 && b > 0.25) beatPulse = 1.0;
+  beatPulse *= 0.87;
+}
+
+// --- Layers ---
+const LAYERS = [
+  { chars: ['·', '∘', '○', '◎', '●'],       hue: 170 },
+  { chars: ['░', '▒', '▓', '█', '▪'],        hue: 300 },
+  { chars: ['⠂', '⠆', '⠇', '⠿', '⣿'],      hue: 210 },
+  { chars: ['╌', '╍', '═', '╬', '▓'],        hue: 50  },
+  { chars: ['∙', '∗', '✦', '✧', '✶'],        hue: 20  },
+  { chars: ['▁', '▂', '▃', '▅', '▇'],        hue: 120 },
+];
+const NL = LAYERS.length;
+
+function noise2(x, y, t) {
+  return (Math.sin(x * 0.28 + t) * Math.cos(y * 0.35 + t * 0.73) + 1) / 2;
+}
+
+// --- Main loop ---
+let t = 0;
+
+function draw() {
+  requestAnimationFrame(draw);
+  t += 0.02;
+  updateAudio();
+
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, CW, CH);
+
+  const fs = Math.min(CELL_W, CELL_H) * 1.05;
+  ctx.font = `${fs}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const pulseBoost = beatPulse * maxR * 0.09;
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const px = (c + 0.5) * CELL_W;
+      const py = (r + 0.5) * CELL_H;
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const normDist = dist / maxR;
+      if (normDist > 1.08) continue;
+
+      const angle = Math.atan2(dy, dx);
+      const bandIdx = Math.floor(((angle + Math.PI) / (2 * Math.PI)) * 200);
+      const bandVal = fftData[Math.min(bandIdx, 255)];
+
+      const w1 = Math.sin(dist * 0.065 - t * 3.1 + smoothBass * 5) * 0.5 + 0.5;
+      const w2 = Math.sin(dist * 0.11  - t * 2.3 + smoothMid  * 4) * 0.5 + 0.5;
+      const w3 = Math.cos(dist * 0.17  - t * 4.2 + smoothHigh * 6) * 0.5 + 0.5;
+      const n  = noise2(c * 0.14, r * 0.14, t * 0.38 + smoothBass * 1.8);
+
+      const layerFloat = normDist * NL + bandVal * 1.4 + w1 * 0.7;
+      const layerIdx = Math.min(NL - 1, Math.abs(Math.floor(layerFloat) % NL));
+      const layer = LAYERS[layerIdx];
+
+      const waveI = w1 * 0.35 + w2 * 0.35 + w3 * 0.3;
+      const inPulse = dist < (maxR * 0.15 + pulseBoost) ? 1 : 0;
+      let intensity = waveI * 0.55 + bandVal * 0.55 + inPulse * 0.35;
+
+      const fade = normDist < 0.8
+        ? 1 - normDist * 0.55
+        : Math.max(0, 1 - (normDist - 0.8) * 5.5);
+      intensity *= fade;
+
+      intensity += (n - 0.5) * 0.22 * (1 + smoothAmp * 2.2);
+      intensity = Math.max(0, Math.min(1, intensity));
+
+      if (intensity < 0.07) continue;
+
+      const charIdx = Math.min(layer.chars.length - 1, Math.floor(intensity * layer.chars.length));
+      const ch = layer.chars[charIdx];
+
+      const hueBase = layer.hue;
+      const hueShift = (angle / Math.PI) * 35 + t * 12 + smoothAmp * 55;
+      const hue = (hueBase + hueShift) % 360;
+      const sat = 80 + intensity * 20;
+      const lig = 40 + intensity * 35;
+      const alpha = Math.min(1, intensity * 1.9 + 0.05);
+
+      ctx.fillStyle = `hsla(${hue.toFixed(0)},${sat.toFixed(0)}%,${lig.toFixed(0)}%,${alpha.toFixed(2)})`;
+      ctx.fillText(ch, px, py);
+    }
+  }
+
+
+}
+
+draw();
+
+// --- File loader ---
+document.getElementById('file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  statusEl.textContent = 'carregando...';
+  songNameEl.textContent = file.name.replace(/\.[^/.]+$/, '').toUpperCase();
+
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } else if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+
+    if (source) {
+      try { source.stop(); } catch(err) {}
+      source.disconnect();
+    }
+    if (analyser) analyser.disconnect();
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+
+    statusEl.textContent = 'decodificando...';
+    const buf = await file.arrayBuffer();
+    const decoded = await audioCtx.decodeAudioData(buf);
+
+    source = audioCtx.createBufferSource();
+    source.buffer = decoded;
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    source.loop = true;
+    source.start(0);
+    isPlaying = true;
+    statusEl.textContent = 'tocando ♪';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'erro ✗';
+    songNameEl.textContent = '— erro ao carregar —';
+  }
+});
+</script>
+</body>
+</html>

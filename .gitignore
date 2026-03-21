@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Old structure (kept for reference, not needed in repo)
+contexto/
+unicode_visualizer.html
+versions/unicode_visualizer_*.html

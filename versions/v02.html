@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Unicode Audio Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
+  }
+  #container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; }
+
+  #ui {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: rgba(0,0,0,0.75);
+    padding: 8px 20px;
+    border-radius: 20px;
+    border: 0.5px solid rgba(255,255,255,0.15);
+    z-index: 10;
+  }
+  #ui label {
+    color: rgba(255,255,255,0.4);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  #file-btn {
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.8);
+    padding: 5px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  #file-btn:hover { border-color: #fff; color: #fff; }
+  #file-input { display: none; }
+  #status {
+    color: rgba(255,255,255,0.3);
+    font-size: 10px;
+    letter-spacing: 1px;
+    min-width: 130px;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+  }
+  #song-name {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.2);
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 80vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #debug-panel {
+    position: fixed;
+    top: 40px;
+    right: 10px;
+    width: 320px;
+    background: rgba(0,0,0,0.88);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 10px;
+    z-index: 20;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    display: none;
+  }
+  #debug-panel.visible { display: block; }
+  #debug-panel canvas { width: 100%; height: 80px; display: block; margin: 4px 0; }
+  #debug-panel .row { display: flex; justify-content: space-between; margin: 2px 0; }
+  #debug-panel .val { color: #0f0; }
+  #debug-panel .label { color: rgba(255,255,255,0.4); }
+  #debug-btn {
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.8);
+    padding: 5px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  #debug-btn:hover { border-color: #fff; color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="song-name">— demo mode —</div>
+<canvas id="viz"></canvas>
+<div id="debug-panel">
+  <div style="margin-bottom:6px;color:rgba(255,255,255,0.5);letter-spacing:2px;">ESPECTRO AO VIVO</div>
+  <canvas id="debug-spectrum"></canvas>
+  <div class="row"><span class="label">Bass (sub+low)</span><span class="val" id="d-bass">0.00</span></div>
+  <div class="row"><span class="label">Mid</span><span class="val" id="d-mid">0.00</span></div>
+  <div class="row"><span class="label">High</span><span class="val" id="d-high">0.00</span></div>
+  <div class="row"><span class="label">Amplitude</span><span class="val" id="d-amp">0.00</span></div>
+  <div class="row"><span class="label">Beat pulse</span><span class="val" id="d-beat">0.00</span></div>
+  <div class="row"><span class="label">Spectral density</span><span class="val" id="d-density">0.00</span></div>
+  <div class="row"><span class="label">Spectral warmth</span><span class="val" id="d-warmth">0.00</span></div>
+  <div class="row"><span class="label">Source</span><span class="val" id="d-source">demo</span></div>
+  <div class="row"><span class="label">Raw bins used</span><span class="val" id="d-bins">0</span></div>
+</div>
+<div id="ui">
+  <label>Áudio</label>
+  <button id="file-btn" onclick="document.getElementById('file-input').click()">Carregar música</button>
+  <input type="file" id="file-input" accept="audio/mpeg,audio/mp3,audio/flac,audio/wav,audio/x-wav,audio/ogg,audio/*">
+  <div id="status">animação demo ♦</div>
+  <button id="debug-btn" onclick="document.getElementById('debug-panel').classList.toggle('visible')">Debug</button>
+</div>
+
+<script>
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const songNameEl = document.getElementById('song-name');
+
+let CW, CH, cx, cy, maxR;
+let COLS = 90, ROWS = 50;
+let CELL_W, CELL_H;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  CW = canvas.width;
+  CH = canvas.height;
+  cx = CW / 2;
+  cy = CH / 2;
+  maxR = Math.min(CW, CH) * 0.46;
+  CELL_W = CW / COLS;
+  CELL_H = CH / ROWS;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- Audio ---
+let audioCtx, analyser, source;
+let isPlaying = false;
+let fftData = new Float32Array(256).fill(0);
+let smoothBass = 0, smoothMid = 0, smoothHigh = 0, smoothAmp = 0;
+let beatPulse = 0;
+let pulseRadius = 1.0;    // 0=center → 1=edge; expands outward on each beat
+let spectralDensity = 0;  // 0–1: fraction of spectrum that is active
+let spectralWarmth = 0;   // −1=bass-heavy/cool, +1=treble-heavy/warm
+let simT = 0;
+
+function getSimFFT() {
+  simT += 0.03;
+  const arr = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const f = i / 256;
+    arr[i] = Math.max(0,
+      Math.sin(simT * 2.1 + f * 9) * 0.3 +
+      Math.sin(simT * 0.8 + f * 4) * 0.4 +
+      Math.cos(simT * 1.5 + f * 14) * 0.2 +
+      Math.random() * 0.12 +
+      (i < 18 ? Math.abs(Math.sin(simT * 2.8)) * 0.6 : 0)
+    ) * 0.85;
+  }
+  return arr;
+}
+
+// Raw FFT buffer — we work directly with all 1024 bins for bass
+let rawFFT = new Uint8Array(1024);
+
+function updateAudio() {
+  if (analyser && isPlaying) {
+    rawFFT = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(rawFFT);
+    // Downsample 1024→256 using AVERAGE of each group (not skip)
+    const binsPer = rawFFT.length / 256;
+    for (let i = 0; i < 256; i++) {
+      const start = Math.floor(i * binsPer);
+      const end   = Math.floor((i + 1) * binsPer);
+      let sum = 0;
+      for (let j = start; j < end; j++) sum += rawFFT[j];
+      fftData[i] = (sum / (end - start)) / 255;
+    }
+  } else {
+    fftData = getSimFFT();
+  }
+
+  // Bass from RAW bins directly (not downsampled) for accuracy
+  // At 44100Hz, fftSize=2048: binWidth ≈ 21.5Hz
+  // Sub-bass: bins 1-4 (21-86Hz), Low bass: bins 5-10 (107-215Hz)
+  // Mid: bins 10-100 (215-2150Hz), High: bins 100-400 (2150-8600Hz)
+  let b = 0, m = 0, h = 0;
+  if (analyser && isPlaying) {
+    // Use raw bins for precise bass — every bin counts for sub-bass
+    for (let i = 1; i <= 10; i++) b += rawFFT[i] / 255;
+    b /= 10;
+    for (let i = 11; i <= 100; i++) m += rawFFT[i] / 255;
+    m /= 90;
+    for (let i = 101; i <= 400; i++) h += rawFFT[i] / 255;
+    h /= 300;
+  } else {
+    for (let i = 0; i < 5; i++) b += fftData[i]; b /= 5;
+    for (let i = 5; i < 50; i++) m += fftData[i]; m /= 45;
+    for (let i = 50; i < 180; i++) h += fftData[i]; h /= 130;
+  }
+
+  smoothBass += (b - smoothBass) * 0.35;
+  smoothMid  += (m - smoothMid)  * 0.22;
+  smoothHigh += (h - smoothHigh) * 0.16;
+  const amp = smoothBass * 0.5 + smoothMid * 0.3 + smoothHigh * 0.2;
+  smoothAmp  += (amp - smoothAmp) * 0.22;
+
+  // Spectral density: fraction of musically relevant bins above noise floor
+  let activeBins = 0;
+  for (let i = 1; i < 180; i++) { if (fftData[i] > 0.06) activeBins++; }
+  spectralDensity += (activeBins / 179 - spectralDensity) * 0.08;
+
+  // Spectral warmth: centroid-based — where is the energy concentrated?
+  let wSum = 0, wTot = 0;
+  for (let i = 1; i < 180; i++) { wSum += i * fftData[i]; wTot += fftData[i]; }
+  const centroid = wTot > 0 ? wSum / (wTot * 180) : 0.25;
+  const targetWarmth = Math.max(-1, Math.min(1, (centroid - 0.25) * 4));
+  spectralWarmth += (targetWarmth - spectralWarmth) * 0.06;
+
+  // Beat detection: lower threshold for better sensitivity
+  if (b > smoothBass * 1.35 && b > 0.15) {
+    beatPulse = 1.0;
+    pulseRadius = 0.0;
+  }
+  beatPulse    *= 0.87;
+  pulseRadius   = Math.min(1.0, pulseRadius + 0.012 + smoothAmp * 0.045);
+}
+
+// --- Layers ---
+const LAYERS = [
+  { chars: ['·', '∘', '○', '◎', '●'],       hue: 170 },
+  { chars: ['░', '▒', '▓', '█', '▪'],        hue: 300 },
+  { chars: ['⠂', '⠆', '⠇', '⠿', '⣿'],      hue: 210 },
+  { chars: ['╌', '╍', '═', '╬', '▓'],        hue: 50  },
+  { chars: ['∙', '∗', '✦', '✧', '✶'],        hue: 20  },
+  { chars: ['▁', '▂', '▃', '▅', '▇'],        hue: 120 },
+];
+const NL = LAYERS.length;
+
+function noise2(x, y, t) {
+  return (Math.sin(x * 0.28 + t) * Math.cos(y * 0.35 + t * 0.73) + 1) / 2;
+}
+
+// --- Main loop ---
+let t = 0;
+
+function draw() {
+  requestAnimationFrame(draw);
+  t += 0.02;
+  updateAudio();
+
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, CW, CH);
+
+  const fs = Math.min(CELL_W, CELL_H) * 1.05;
+  ctx.font = `${fs}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const pulseBoost = beatPulse * maxR * 0.09;
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const px = (c + 0.5) * CELL_W;
+      const py = (r + 0.5) * CELL_H;
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const normDist = dist / maxR;
+      if (normDist > 1.08) continue;
+
+      const angle = Math.atan2(dy, dx);
+      const bandIdx    = Math.floor(((angle + Math.PI) / (2 * Math.PI)) * 200);
+      const angularVal = fftData[Math.min(bandIdx, 255)];
+      const radialBin  = Math.min(179, Math.floor(normDist * 180));
+      const bandVal    = fftData[radialBin] * 0.65 + angularVal * 0.35;
+
+      // Outward-traveling waves
+      const w1 = Math.sin(normDist * 5  - t * (1.0 + smoothBass * 3.0));
+      const w2 = Math.sin(normDist * 8  - t * (1.5 + smoothMid  * 2.2));
+      const w3 = Math.sin(normDist * 11 - t * (2.0 + smoothHigh * 1.5));
+
+      // Combine weighted by band energy
+      const totalEnergy = smoothBass + smoothMid + smoothHigh + 0.001;
+      const waveI = w1 * (smoothBass / totalEnergy)
+                  + w2 * (smoothMid  / totalEnergy)
+                  + w3 * (smoothHigh / totalEnergy);
+      const crest = Math.max(0, waveI);
+
+      // Layer selection: angle divides the disc into 6 sectors (one per layer),
+      // shifted over time by audio so sectors rotate and all 6 layers appear
+      const angleFraction = (angle + Math.PI) / (2 * Math.PI); // 0–1
+      const layerFloat = angleFraction * NL
+                       + bandVal * 1.2
+                       + crest * 0.6
+                       + t * 0.04 * (1 + smoothMid);
+      const layerIdx = Math.floor(Math.abs(layerFloat)) % NL;
+      const layer = LAYERS[layerIdx];
+
+      // Radial pulse ring: glows where normDist ≈ pulseRadius
+      const ringDist = Math.abs(normDist - pulseRadius);
+      const ringGlow = Math.max(0, 1 - ringDist * 14) * beatPulse;
+
+      // Base floor
+      const base = 0.02 + spectralDensity * 0.04;
+
+      // Amplitude boost
+      const ampBoost = 0.3 + smoothAmp * 1.8;
+      let intensity = (base + crest * 0.3 + ringGlow * 0.5 + bandVal * 0.12) * ampBoost;
+
+      // Uniform fade; sharp cutoff only at the very edge
+      const fade = normDist < 0.92
+        ? 1.0
+        : Math.max(0, 1 - (normDist - 0.92) * 12);
+      intensity *= fade;
+      intensity = Math.max(0, Math.min(1, intensity));
+
+      if (intensity < 0.08) continue;
+
+      // Non-linear char mapping: power <1 spreads low intensities across more characters
+      // so all 5 chars per layer are visible even at moderate amplitude
+      const solidBoost = smoothAmp * 0.18;
+      const charVal = Math.min(1, Math.pow(intensity, 0.55) + solidBoost);
+      const charIdx = Math.min(layer.chars.length - 1, Math.floor(charVal * layer.chars.length));
+      const ch = layer.chars[charIdx];
+
+      // Frequency temperature: bass (center) = cool blue 230°, treble (edge) = warm orange 20°
+      const hueBase     = 230 - normDist * 210;
+      const hueShift    = (angle / Math.PI) * 20 + t * 8 + smoothAmp * 30;
+      const warmthShift = spectralWarmth * 8;
+      const hue = ((hueBase + hueShift + warmthShift) % 360 + 360) % 360;
+      const sat = 80 + intensity * 20 + spectralDensity * 18;
+      const lig = 40 + intensity * 35 + spectralDensity * 6 + smoothAmp * 8;
+      const alpha = Math.min(1, intensity * 2.0 + 0.05);
+
+      ctx.fillStyle = `hsla(${hue.toFixed(0)},${sat.toFixed(0)}%,${lig.toFixed(0)}%,${alpha.toFixed(2)})`;
+      ctx.fillText(ch, px, py);
+    }
+  }
+
+  // --- Debug panel update ---
+  updateDebug();
+}
+
+// Debug spectrum renderer
+const dbgCanvas = document.getElementById('debug-spectrum');
+const dbgCtx = dbgCanvas.getContext('2d');
+dbgCanvas.width = 300;
+dbgCanvas.height = 80;
+
+function updateDebug() {
+  const panel = document.getElementById('debug-panel');
+  if (!panel.classList.contains('visible')) return;
+
+  // Draw spectrum
+  const W = dbgCanvas.width, H = dbgCanvas.height;
+  dbgCtx.fillStyle = 'rgba(0,0,0,0.85)';
+  dbgCtx.fillRect(0, 0, W, H);
+
+  // Draw raw FFT bins (first 200 for musical range)
+  const binsToShow = analyser && isPlaying ? Math.min(400, rawFFT.length) : 180;
+  const barW = W / binsToShow;
+
+  for (let i = 0; i < binsToShow; i++) {
+    const val = analyser && isPlaying ? rawFFT[i] / 255 : fftData[i];
+    const bH = val * H;
+
+    // Color: bass=red, mid=yellow, high=cyan
+    let color;
+    if (i <= 10) color = `rgba(255,${Math.floor(80 + val * 100)},50,0.9)`;      // bass = red
+    else if (i <= 100) color = `rgba(255,255,${Math.floor(50 + val * 100)},0.7)`; // mid = yellow
+    else color = `rgba(50,${Math.floor(180 + val * 75)},255,0.6)`;                // high = cyan
+
+    dbgCtx.fillStyle = color;
+    dbgCtx.fillRect(i * barW, H - bH, Math.max(1, barW - 0.5), bH);
+  }
+
+  // Bass region marker
+  if (analyser && isPlaying) {
+    dbgCtx.strokeStyle = 'rgba(255,100,100,0.5)';
+    dbgCtx.beginPath();
+    dbgCtx.moveTo(10 * barW, 0);
+    dbgCtx.lineTo(10 * barW, H);
+    dbgCtx.stroke();
+
+    dbgCtx.strokeStyle = 'rgba(255,255,100,0.3)';
+    dbgCtx.beginPath();
+    dbgCtx.moveTo(100 * barW, 0);
+    dbgCtx.lineTo(100 * barW, H);
+    dbgCtx.stroke();
+  }
+
+  // Labels
+  dbgCtx.font = '8px monospace';
+  dbgCtx.fillStyle = 'rgba(255,100,100,0.7)';
+  dbgCtx.fillText('BASS', 2, 10);
+  dbgCtx.fillStyle = 'rgba(255,255,100,0.5)';
+  dbgCtx.fillText('MID', analyser && isPlaying ? 11 * barW : 20, 10);
+  dbgCtx.fillStyle = 'rgba(100,200,255,0.5)';
+  dbgCtx.fillText('HIGH', analyser && isPlaying ? 101 * barW : 80, 10);
+
+  // Update values
+  document.getElementById('d-bass').textContent = smoothBass.toFixed(3);
+  document.getElementById('d-mid').textContent = smoothMid.toFixed(3);
+  document.getElementById('d-high').textContent = smoothHigh.toFixed(3);
+  document.getElementById('d-amp').textContent = smoothAmp.toFixed(3);
+  document.getElementById('d-beat').textContent = beatPulse.toFixed(3);
+  document.getElementById('d-density').textContent = spectralDensity.toFixed(3);
+  document.getElementById('d-warmth').textContent = spectralWarmth.toFixed(3);
+  document.getElementById('d-source').textContent = analyser && isPlaying ? 'audio' : 'demo';
+  document.getElementById('d-bins').textContent = analyser ? analyser.frequencyBinCount : 'N/A';
+  // Color-code bass value
+  const bassEl = document.getElementById('d-bass');
+  if (smoothBass > 0.4) bassEl.style.color = '#ff4444';
+  else if (smoothBass > 0.15) bassEl.style.color = '#ffaa00';
+  else bassEl.style.color = '#0f0';
+}
+
+draw();
+
+// --- File loader ---
+document.getElementById('file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  statusEl.textContent = 'carregando...';
+  songNameEl.textContent = file.name.replace(/\.[^/.]+$/, '').toUpperCase();
+
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } else if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+
+    if (source) {
+      try { source.stop(); } catch(err) {}
+      source.disconnect();
+    }
+    if (analyser) analyser.disconnect();
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.65;
+
+    statusEl.textContent = 'decodificando...';
+    const buf = await file.arrayBuffer();
+    const decoded = await audioCtx.decodeAudioData(buf);
+
+    source = audioCtx.createBufferSource();
+    source.buffer = decoded;
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    source.loop = true;
+    source.start(0);
+    isPlaying = true;
+    statusEl.textContent = 'tocando ♪';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'erro ✗';
+    songNameEl.textContent = '— erro ao carregar —';
+  }
+});
+</script>
+</body>
+</html>
