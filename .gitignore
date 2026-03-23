@@ -10,7 +10,13 @@
 *.swo
 *~
 
+# LLMs
+.claude/
+
 # Old structure (kept for reference, not needed in repo)
-contexto/
+# contexto/
 unicode_visualizer.html
 versions/unicode_visualizer_*.html
+
+# Pesquisa
+# _refs/
