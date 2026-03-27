@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Unicode Grid Editor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
+    color: rgba(255,255,255,0.8);
+    overflow: hidden;
+  }
+
+  /* ── Top bar ── */
+  #topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 38px;
+    background: rgba(0,0,0,0.9);
+    border-bottom: 0.5px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    z-index: 10;
+  }
+  #topbar h1 {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    flex: 1;
+  }
+
+  /* ── Main area ── */
+  #main {
+    position: fixed;
+    top: 38px; bottom: 28px; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Scale wrapper — entire layout scales as one unit ── */
+  #scale-wrap {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    transform-origin: center center;
+  }
+
+  /* ── Canvas wrapper ── */
+  #canvas-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+  #editor-canvas {
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #color-wheel-canvas { touch-action: none; }
+
+  /* ── Portrait layout (canvas + panel stacked) ── */
+  #scale-wrap.portrait { flex-direction: column; align-items: center; }
+  #scale-wrap.portrait #panel {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 900px;
+    gap: 8px 20px;
+  }
+  #scale-wrap.portrait #panel > div { flex: 1; min-width: 120px; }
+  #scale-wrap.portrait .section-label { font-size: 8px; margin-bottom: 3px; }
+
+  @media (pointer: coarse) { #kb-hints { display: none; } }
+
+  /* ── Right panel ── */
+  #panel {
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
+  }
+  #panel::-webkit-scrollbar { width: 4px; }
+  #panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
+    margin-bottom: 6px;
+  }
+
+  /* ── Palette ── */
+  #palette {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .layer-row:hover { background: rgba(255,255,255,0.04); }
+  .layer-row.active { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); }
+  .layer-name {
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
+    width: 44px;
+    flex-shrink: 0;
+  }
+  .layer-chars {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+  }
+  .char-btn {
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    background: transparent;
+    line-height: 1;
+    transition: background 0.1s;
+  }
+  .char-btn:hover { background: rgba(255,255,255,0.1); }
+  .char-btn.active-char {
+    border-color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.12);
+  }
+
+  /* ── Tools ── */
+  .btn-group {
+    display: flex;
+    gap: 6px;
+  }
+  .tool-btn {
+    flex: 1;
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.5);
+    padding: 5px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.1s;
+  }
+  .tool-btn:hover { border-color: rgba(255,255,255,0.5); color: rgba(255,255,255,0.9); }
+  .tool-btn.active { border-color: rgba(255,255,255,0.7); color: #fff; background: rgba(255,255,255,0.08); }
+  .tool-icon { flex: none; width: 28px; padding: 5px 0; font-size: 14px; text-transform: none; letter-spacing: 0; }
+
+  /* ── Brush slider ── */
+  #brush-row { display: flex; align-items: center; gap: 8px; }
+  #brush-slider {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 2px; background: rgba(255,255,255,0.15);
+    border-radius: 1px; outline: none; cursor: pointer;
+  }
+  #brush-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%; background: rgba(255,255,255,0.8); cursor: pointer;
+  }
+  #brush-val { font-size: 10px; color: rgba(255,255,255,0.4); width: 16px; text-align: right; }
+
+  /* ── Color Wheel ── */
+  #color-wheel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #color-wheel-canvas {
+    align-self: center;
+    cursor: crosshair;
+    display: block;
+    width: 90px;
+    height: 90px;
+    image-rendering: auto;
+  }
+  #color-preview-row {
+    align-self: center;
+    width: 90px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  #color-preview {
+    flex: 1;
+    height: 16px;
+    border-radius: 5px;
+    border: 0.5px solid rgba(255,255,255,0.15);
+    transition: background 0.1s;
+  }
+  #add-swatch-btn {
+    width: 18px; height: 18px; flex-shrink: 0;
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.5);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.1s;
+  }
+  #add-swatch-btn:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+  #swatches-wrap {
+    align-self: center;
+    width: 90px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #swatches-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 4px;
+  }
+  .swatch {
+    width: 20px; height: 20px;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.12s, border-color 0.12s;
+  }
+  .swatch:hover { transform: scale(1.2); border-color: rgba(255,255,255,0.6); }
+  #palette-file-btns {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .palette-file-label {
+    font-size: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.2);
+    flex-shrink: 0;
+  }
+  .palette-file-sep { color: rgba(255,255,255,0.12); font-size: 8px; }
+  #palette-file-btns button, #palette-file-btns label {
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.35);
+    padding: 2px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 8px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.1s;
+    display: block;
+  }
+  #palette-file-btns button:hover, #palette-file-btns label:hover {
+    border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.8);
+  }
+  #editor-canvas.cursor-picker { cursor: cell; }
+
+  /* ── Action buttons ── */
+  .action-btn {
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.6);
+    padding: 5px 14px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.1s;
+  }
+  .action-btn:hover { border-color: #fff; color: #fff; }
+  #mask-btn.active { border-color: rgba(255,180,0,0.7); color: rgba(255,180,0,0.9); background: rgba(255,180,0,0.08); }
+
+  /* ── Clear button — overlaid on canvas ── */
+  #clear-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 5;
+    font-size: 9px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    opacity: 0.55;
+    transition: opacity 0.15s, border-color 0.1s, color 0.1s;
+  }
+  #clear-btn:hover { opacity: 1; }
+
+  /* ── Status bar ── */
+  #statusbar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 28px;
+    background: rgba(0,0,0,0.9);
+    border-top: 0.5px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.25);
+    letter-spacing: 1px;
+    gap: 16px;
+    z-index: 10;
+  }
+  #statusbar span { color: rgba(255,255,255,0.45); }
+  #kb-hints { margin-left: auto; color: rgba(255,255,255,0.15); }
+
+  /* ── Dirty indicator ── */
+  #dirty-dot {
+    display: inline-block;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: rgba(255,180,60,0.8);
+    margin-left: 8px;
+    vertical-align: middle;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #dirty-dot.visible { opacity: 1; }
+
+  /* ── Confirm dialog ── */
+  #confirm-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+  }
+  #confirm-modal.visible { display: flex; }
+  #confirm-box {
+    background: #0d0d0d;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    border-radius: 12px;
+    padding: 24px 24px 20px;
+    width: min(360px, 90vw);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  #confirm-box p {
+    font-size: 11px;
+    color: rgba(255,255,255,0.7);
+    line-height: 1.55;
+    letter-spacing: 0.3px;
+  }
+  #confirm-box p strong {
+    color: rgba(255,180,60,0.9);
+    font-weight: normal;
+  }
+  #confirm-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>Unicode Grid Editor<span id="dirty-dot" title="Unsaved changes"></span></h1>
+  <button class="action-btn" id="new-btn">New</button>
+  <button class="action-btn" id="save-btn">Save</button>
+  <button class="action-btn" id="open-btn">Open</button>
+  <input type="file" id="open-input" accept=".json" style="display:none">
+  <button class="action-btn" id="png-btn">Export PNG</button>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="scale-wrap">
+  <div id="canvas-wrap">
+    <canvas id="editor-canvas"></canvas>
+    <button class="action-btn" id="clear-btn">Clear</button>
+  </div>
+
+  <div id="panel">
+    <!-- Palette -->
+    <div>
+      <div class="section-label">Brushes</div>
+      <div id="palette"></div>
+    </div>
+
+    <!-- Tools -->
+    <div>
+      <div class="section-label">Tool</div>
+      <div class="btn-group">
+        <button class="tool-btn tool-icon active" id="tool-draw"   data-tool="draw"   title="Draw (D)">✏</button>
+        <button class="tool-btn tool-icon"        id="tool-erase"  data-tool="erase"  title="Erase (E)">⌫</button>
+        <button class="tool-btn tool-icon"        id="tool-picker" data-tool="picker" title="Pick (K)">◎</button>
+        <button class="tool-btn" id="mask-btn" title="Mask Mode (M)">Mask</button>
+      </div>
+    </div>
+
+    <!-- Color Wheel -->
+    <div id="color-wheel-section">
+      <div class="section-label">Color</div>
+      <canvas id="color-wheel-canvas" width="300" height="300"></canvas>
+      <div id="color-preview-row">
+        <div id="color-preview"></div>
+        <button id="add-swatch-btn" title="Save color to palette">+</button>
+      </div>
+      <div id="swatches-wrap">
+        <div id="swatches-grid"></div>
+        <div id="palette-file-btns">
+          <span class="palette-file-label">Palette</span>
+          <span class="palette-file-sep">|</span>
+          <button id="save-palette-btn">Save</button>
+          <label id="load-palette-label">Load<input type="file" id="load-palette-input" accept=".json" style="display:none"></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Brush size -->
+    <div>
+      <div class="section-label">Brush Size</div>
+      <div id="brush-row">
+        <input type="range" id="brush-slider" min="1" max="10" step="1" value="1">
+        <div id="brush-val">1</div>
+      </div>
+    </div>
+  </div>
+  </div><!-- /scale-wrap -->
+</div>
+
+<!-- Status bar -->
+<div id="statusbar">
+  <span id="status-text">ready</span>
+  <span id="kb-hints">D draw · E erase · K pick · M mask · scroll brush size · ⌘Z undo · ⌘⇧Z redo · DEL clear · Esc close</span>
+</div>
+
+<!-- Confirm: unsaved changes -->
+<div id="confirm-modal">
+  <div id="confirm-box">
+    <p>The current canvas has <strong>unsaved changes</strong>.<br>Do you want to save before creating a new canvas?</p>
+    <div id="confirm-actions">
+      <button class="action-btn" id="confirm-cancel-btn">Cancel</button>
+      <button class="action-btn" id="confirm-discard-btn">Discard</button>
+      <button class="action-btn" id="confirm-save-btn">Save &amp; New</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Layers (matching index.html exactly) ──────────────────────────
+const LAYERS = [
+  { chars: ['·', '∘', '○', '◎', '●'],  hue: 170, name: 'circles'  },
+  { chars: ['░', '▒', '▓', '█', '▪'],  hue: 300, name: 'shading'  },
+  { chars: ['⠂', '⠆', '⠇', '⠿', '⣿'], hue: 210, name: 'braille'  },
+  { chars: ['╌', '╍', '═', '╬', '▓'],  hue:  50, name: 'box'      },
+  { chars: ['∙', '∗', '✦', '✧', '✶'],  hue:  20, name: 'sparkles' },
+  { chars: ['▁', '▂', '▃', '▅', '▇'],  hue: 120, name: 'bars'     },
+];
+
+// ── Grid config ───────────────────────────────────────────────────
+const COLS = 90;
+const ROWS = 50;
+const CELL_H = 10;
+
+const canvas = document.getElementById('editor-canvas');
+const ctx    = canvas.getContext('2d');
+
+// Measure actual glyph advance width at CELL_H to get proper aspect ratio
+const _tmpCtx = document.createElement('canvas').getContext('2d');
+_tmpCtx.font = `${CELL_H}px 'Courier New', monospace`;
+const CELL_W = Math.round(_tmpCtx.measureText('█').width * 2) / 2;
+
+const DPR = window.devicePixelRatio || 1;
+canvas.width  = COLS * CELL_W * DPR;
+canvas.height = ROWS * CELL_H * DPR;
+canvas.style.width  = (COLS * CELL_W) + 'px';
+canvas.style.height = (ROWS * CELL_H) + 'px';
+ctx.scale(DPR, DPR);
+
+// CSS (logical) pixel dimensions — always use these for drawing coordinates
+const CANVAS_W = COLS * CELL_W;
+const CANVAS_H = ROWS * CELL_H;
+const CX = CANVAS_W / 2;
+const CY = CANVAS_H / 2;
+// Matches visualizer maxR ratio (~0.46 of min dimension)
+const MAX_R = Math.min(CANVAS_W, CANVAS_H) * 0.46;
+
+// ── State ─────────────────────────────────────────────────────────
+const grid = new Array(ROWS * COLS).fill(null);
+// cell: { layer, charIdx, intensity } | null
+
+let activeTool    = 'draw';
+let activeLayer   = 0;
+let activeCharIdx = 4;        // default: densest char
+let activeIntensity = 0.8;
+let brushSize     = 1;
+let isPainting    = false;
+let maskMode      = false;
+
+// Paint tool color state
+let paintHue = 170;
+let paintSat = 78;
+let paintLig = 52;
+
+// Color palette (swatches)
+let colorPalette = [];
+const PALETTE_MAX = 20;
+let hoverCol      = -1;
+let hoverRow      = -1;
+
+// ── Dirty tracking ────────────────────────────────────────────────
+let isDirty = false;
+
+function markDirty() {
+  if (isDirty) return;
+  isDirty = true;
+  document.getElementById('dirty-dot').classList.add('visible');
+}
+
+function markClean() {
+  isDirty = false;
+  document.getElementById('dirty-dot').classList.remove('visible');
+}
+
+// ── Undo / Redo stacks ────────────────────────────────────────────
+const undoStack = [];
+const redoStack = [];
+const UNDO_LIMIT = 50;
+
+function saveUndoSnapshot() {
+  undoStack.push(grid.slice());
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack.length = 0; // new action breaks redo chain
+  markDirty();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(grid.slice());
+  const snapshot = undoStack.pop();
+  for (let i = 0; i < grid.length; i++) grid[i] = snapshot[i];
+  markDirty();
+  renderGrid();
+  updateStatus();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(grid.slice());
+  const snapshot = redoStack.pop();
+  for (let i = 0; i < grid.length; i++) grid[i] = snapshot[i];
+  markDirty();
+  renderGrid();
+  updateStatus();
+}
+
+// ── Responsive layout scale ───────────────────────────────────────
+function scaleLayout() {
+  const portrait = window.innerWidth < window.innerHeight;
+  const wrap     = document.getElementById('scale-wrap');
+  wrap.classList.toggle('portrait', portrait);
+
+  // Temporarily reset transform to measure natural sizes
+  wrap.style.transform = 'none';
+  const panelH = document.getElementById('panel').offsetHeight;
+
+  const canvasW = COLS * CELL_W;
+  const canvasH = ROWS * CELL_H;
+  const nativeW = portrait ? canvasW              : canvasW + 220 + 24;
+  const nativeH = portrait ? canvasH + panelH + 24 : Math.max(canvasH, panelH);
+  const availW  = window.innerWidth  - 32;
+  const availH  = window.innerHeight - 38 - 28 - 16;
+  const scale   = Math.min(availW / nativeW, availH / nativeH, 2.0);
+  wrap.style.transform = `scale(${scale})`;
+
+  // Give the panel a max-height so it scrolls if still needed after scaling
+  document.getElementById('panel').style.maxHeight = `${canvasH}px`;
+}
+
+window.addEventListener('resize', scaleLayout);
+
+// ── Geometry helpers ──────────────────────────────────────────────
+function isInsideCircle(col, row) {
+  const dx = (col + 0.5) * CELL_W - CX;
+  const dy = (row + 0.5) * CELL_H - CY;
+  return Math.sqrt(dx * dx + dy * dy) <= MAX_R;
+}
+
+function brushCells(col, row) {
+  const half  = Math.floor(brushSize / 2);
+  const cells = [];
+  for (let dr = -half; dr <= half; dr++) {
+    for (let dc = -half; dc <= half; dc++) {
+      const c = col + dc;
+      const r = row + dr;
+      if (c >= 0 && c < COLS && r >= 0 && r < ROWS && isInsideCircle(c, r)) {
+        cells.push({ c, r });
+      }
+    }
+  }
+  return cells;
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function renderGrid() {
+  ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+  ctx.fillStyle = '#080808';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Circle interior — slightly lighter so it stands out from the page background
+  ctx.fillStyle = '#141414';
+  ctx.beginPath();
+  ctx.arc(CX, CY, MAX_R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Circle border — faint ring to mark the boundary
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth   = 0.5;
+  ctx.beginPath();
+  ctx.arc(CX, CY, MAX_R, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.font         = `${CELL_H}px 'Courier New', monospace`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Hover brush preview cells set
+  const hoverSet = new Set();
+  if (hoverCol >= 0 && hoverRow >= 0) {
+    for (const { c, r } of brushCells(hoverCol, hoverRow)) {
+      hoverSet.add(r * COLS + c);
+    }
+  }
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!isInsideCircle(c, r)) continue;
+
+      const px  = (c + 0.5) * CELL_W;
+      const py  = (r + 0.5) * CELL_H;
+      const idx = r * COLS + c;
+      const cell = grid[idx];
+      const inHover = hoverSet.has(idx);
+
+      if (inHover) {
+        ctx.fillStyle = activeTool === 'erase'  ? 'rgba(255,60,60,0.08)'
+                      : activeTool === 'picker' ? 'rgba(255,255,255,0.18)'
+                      : `hsla(${paintHue},${paintSat}%,${paintLig}%,0.15)`;
+        ctx.fillRect(c * CELL_W, r * CELL_H, CELL_W, CELL_H);
+      }
+
+      if (cell === null) {
+        ctx.fillStyle = inHover && activeTool !== 'erase'
+          ? `hsla(${paintHue},${paintSat}%,${paintLig}%,0.5)`
+          : 'rgba(255,255,255,0.15)';
+        ctx.fillText('·', px, py);
+      } else {
+        const layer = LAYERS[cell.layer];
+        if (cell.mono) {
+          // Draw tool — monochromatic white/light-gray
+          const lit   = 55 + cell.intensity * 30;
+          const alpha = 0.5 + cell.intensity * 0.5;
+          ctx.fillStyle = `hsla(0,0%,${lit}%,${alpha})`;
+        } else {
+          // Paint tool — custom color from wheel
+          const alpha = 0.4 + cell.intensity * 0.6;
+          ctx.fillStyle = `hsla(${cell.hue},${cell.sat}%,${cell.lig}%,${alpha})`;
+        }
+        ctx.fillText(layer.chars[cell.charIdx], px, py);
+      }
+    }
+  }
+
+}
+
+// ── Color picker ──────────────────────────────────────────────────
+function pickColorFromCanvas(col, row) {
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+  const cell = grid[row * COLS + col];
+  if (!cell || cell.hue == null) return;
+  paintHue = cell.hue;
+  paintSat = cell.sat;
+  paintLig = cell.lig;
+  renderColorWheel();
+  updateColorPreview();
+  // Switch back to draw after picking
+  activeTool = 'draw';
+  document.querySelectorAll('[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === 'draw'));
+  canvas.classList.remove('cursor-picker');
+  updateStatus();
+}
+
+// ── Paint / erase ─────────────────────────────────────────────────
+function applyBrush(col, row) {
+  let changed = false;
+  for (const { c, r } of brushCells(col, row)) {
+    const idx = r * COLS + c;
+    if (activeTool === 'erase') {
+      if (grid[idx] !== null) { grid[idx] = null; changed = true; }
+    } else {
+      if (maskMode && grid[idx] !== null) continue; // mask: preserve filled cells
+      grid[idx] = { layer: activeLayer, charIdx: activeCharIdx, intensity: activeIntensity,
+                    mono: false, hue: paintHue, sat: paintSat, lig: paintLig };
+      changed = true;
+    }
+  }
+  if (changed) renderGrid();
+}
+
+function canvasCoords(e) {
+  const rect    = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  // rect.width = CANVAS_W * scale (scale-wrap CSS transform)
+  // CANVAS_W / rect.width = 1/scale — maps screen px → CSS px
+  const col = Math.floor((clientX - rect.left) * (CANVAS_W / rect.width) / CELL_W);
+  const row = Math.floor((clientY - rect.top)  * (CANVAS_H / rect.height) / CELL_H);
+  return { col, row };
+}
+
+canvas.addEventListener('mousedown', e => {
+  const { col, row } = canvasCoords(e);
+  if (activeTool === 'picker') { pickColorFromCanvas(col, row); return; }
+  saveUndoSnapshot();
+  isPainting = true;
+  applyBrush(col, row);
+});
+
+canvas.addEventListener('mousemove', e => {
+  const { col, row } = canvasCoords(e);
+  hoverCol = col; hoverRow = row;
+  if (isPainting) applyBrush(col, row);
+  else renderGrid();
+  updateStatus();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  hoverCol = -1; hoverRow = -1;
+  renderGrid();
+});
+
+window.addEventListener('mouseup', () => { isPainting = false; });
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const { col, row } = canvasCoords(e);
+  if (activeTool === 'picker') { pickColorFromCanvas(col, row); return; }
+  saveUndoSnapshot(); isPainting = true;
+  applyBrush(col, row);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const { col, row } = canvasCoords(e);
+  applyBrush(col, row);
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => { isPainting = false; });
+
+// ── Scroll wheel → brush size ──────────────────────────────────────
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -1 : 1;
+  brushSize = Math.max(1, Math.min(10, brushSize + delta));
+  const slider = document.getElementById('brush-slider');
+  slider.value = brushSize;
+  document.getElementById('brush-val').textContent = brushSize;
+  renderGrid();
+  updateStatus();
+}, { passive: false });
+
+// ── Color Wheel ───────────────────────────────────────────────────
+// ── Color Wheel constants (must be before canvas setup) ───────────
+const CW_W    = 300;
+const CW_CX   = 150;
+const CW_CY   = 150;
+const CW_OR   = 143;  // outer ring radius
+const CW_RW   = 30;   // ring width
+const CW_IR   = CW_OR - CW_RW; // 113 — inner radius
+// SL square inscribed in inner circle
+const CW_SH   = Math.floor(CW_IR / Math.SQRT2); // half-side ≈ 79
+const CW_SX   = CW_CX - CW_SH; // square left
+const CW_SY   = CW_CY - CW_SH; // square top
+const CW_SS   = CW_SH * 2;     // square side ≈ 158
+
+const cwCanvas = document.getElementById('color-wheel-canvas');
+const cwCtx    = cwCanvas.getContext('2d');
+// Render at physical resolution for crispness; display at 120px via CSS
+cwCanvas.width  = CW_W * DPR;
+cwCanvas.height = CW_W * DPR;
+cwCanvas.style.width  = '120px';
+cwCanvas.style.height = '120px';
+cwCtx.scale(DPR, DPR); // all draw calls use CSS px (0–CW_W range)
+
+const LIG_MAX = 85; // lightness at top of SL square
+const LIG_MIN = 15; // lightness at bottom
+
+function renderColorWheel() {
+  cwCtx.clearRect(0, 0, CW_W, CW_W);
+
+  // ── Hue ring ──
+  const ringGrad = cwCtx.createConicGradient(0, CW_CX, CW_CY);
+  for (let h = 0; h <= 360; h += 30) {
+    ringGrad.addColorStop(h / 360, `hsl(${h},100%,50%)`);
+  }
+  cwCtx.fillStyle = ringGrad;
+  cwCtx.beginPath();
+  cwCtx.arc(CW_CX, CW_CY, CW_OR, 0, Math.PI * 2);
+  cwCtx.arc(CW_CX, CW_CY, CW_IR, 0, Math.PI * 2, true);
+  cwCtx.fill('evenodd');
+
+  // ── SL square ──
+  // Base fill — pure hue at full sat/50% lig
+  cwCtx.fillStyle = `hsl(${paintHue},100%,50%)`;
+  cwCtx.fillRect(CW_SX, CW_SY, CW_SS, CW_SS);
+
+  // White gradient left→right (adds white = reduces effective sat)
+  const gWhite = cwCtx.createLinearGradient(CW_SX, 0, CW_SX + CW_SS, 0);
+  gWhite.addColorStop(0, 'rgba(255,255,255,1)');
+  gWhite.addColorStop(1, 'rgba(255,255,255,0)');
+  cwCtx.fillStyle = gWhite;
+  cwCtx.fillRect(CW_SX, CW_SY, CW_SS, CW_SS);
+
+  // Black gradient top→bottom (adds black = reduces lightness)
+  const gBlack = cwCtx.createLinearGradient(0, CW_SY, 0, CW_SY + CW_SS);
+  gBlack.addColorStop(0, 'rgba(0,0,0,0)');
+  gBlack.addColorStop(1, 'rgba(0,0,0,1)');
+  cwCtx.fillStyle = gBlack;
+  cwCtx.fillRect(CW_SX, CW_SY, CW_SS, CW_SS);
+
+  // ── Ring indicator (dot at current hue) ──
+  const hueRad = (paintHue * Math.PI) / 180;
+  const midR   = CW_IR + CW_RW / 2;
+  const dotX   = CW_CX + midR * Math.cos(hueRad);
+  const dotY   = CW_CY + midR * Math.sin(hueRad);
+  cwCtx.beginPath();
+  cwCtx.arc(dotX, dotY, 9, 0, Math.PI * 2);
+  cwCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+  cwCtx.lineWidth   = 3.5;
+  cwCtx.stroke();
+  cwCtx.strokeStyle = 'rgba(255,255,255,0.95)';
+  cwCtx.lineWidth   = 2;
+  cwCtx.stroke();
+
+  // ── SL indicator (crosshair at current sat/lig) ──
+  const satFrac = paintSat / 100;
+  const ligFrac = (LIG_MAX - paintLig) / (LIG_MAX - LIG_MIN);
+  const slX     = CW_SX + satFrac * CW_SS;
+  const slY     = CW_SY + ligFrac * CW_SS;
+  const cSize   = 8;
+  cwCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+  cwCtx.lineWidth   = 3.5;
+  cwCtx.beginPath();
+  cwCtx.moveTo(slX - cSize, slY); cwCtx.lineTo(slX + cSize, slY);
+  cwCtx.moveTo(slX, slY - cSize); cwCtx.lineTo(slX, slY + cSize);
+  cwCtx.stroke();
+  cwCtx.strokeStyle = 'rgba(255,255,255,0.95)';
+  cwCtx.lineWidth   = 2;
+  cwCtx.beginPath();
+  cwCtx.moveTo(slX - cSize, slY); cwCtx.lineTo(slX + cSize, slY);
+  cwCtx.moveTo(slX, slY - cSize); cwCtx.lineTo(slX, slY + cSize);
+  cwCtx.stroke();
+}
+
+function updateColorPreview() {
+  document.getElementById('color-preview').style.background =
+    `hsl(${paintHue},${paintSat}%,${paintLig}%)`;
+}
+
+// Color wheel interaction
+let cwDragging = null; // 'ring' | 'square' | null
+
+function pickColor(e) {
+  const pt   = e.touches ? e.touches[0] : e;
+  const rect = cwCanvas.getBoundingClientRect();
+  const x    = (pt.clientX - rect.left) * (CW_W / rect.width);
+  const y    = (pt.clientY - rect.top)  * (CW_W / rect.height);
+  const dx   = x - CW_CX;
+  const dy   = y - CW_CY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (cwDragging === 'ring' || (cwDragging === null && dist >= CW_IR && dist <= CW_OR + 4)) {
+    cwDragging = 'ring';
+    paintHue   = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
+    renderColorWheel();
+    updateColorPreview();
+    updateStatus();
+  } else if (cwDragging === 'square' ||
+             (cwDragging === null && x >= CW_SX && x <= CW_SX + CW_SS &&
+              y >= CW_SY && y <= CW_SY + CW_SS)) {
+    cwDragging = 'square';
+    paintSat   = Math.max(0, Math.min(100, ((x - CW_SX) / CW_SS) * 100));
+    paintLig   = Math.max(LIG_MIN, Math.min(LIG_MAX,
+                   LIG_MAX - ((y - CW_SY) / CW_SS) * (LIG_MAX - LIG_MIN)));
+    renderColorWheel();
+    updateColorPreview();
+    updateStatus();
+  }
+}
+
+cwCanvas.addEventListener('mousedown',  e => { cwDragging = null; pickColor(e); });
+cwCanvas.addEventListener('mousemove',  e => { if (cwDragging) pickColor(e); });
+cwCanvas.addEventListener('touchstart', e => { e.preventDefault(); cwDragging = null; pickColor(e); }, { passive: false });
+cwCanvas.addEventListener('touchmove',  e => { e.preventDefault(); if (cwDragging) pickColor(e); }, { passive: false });
+window.addEventListener('mouseup',  () => { cwDragging = null; });
+window.addEventListener('touchend', () => { cwDragging = null; });
+
+// ── Swatches ──────────────────────────────────────────────────────
+function renderSwatches() {
+  const grid = document.getElementById('swatches-grid');
+  grid.innerHTML = '';
+  colorPalette.forEach((c, i) => {
+    const div = document.createElement('div');
+    div.className = 'swatch';
+    div.style.background = `hsl(${c.hue},${c.sat}%,${c.lig}%)`;
+    div.title = `hsl(${Math.round(c.hue)}°, ${Math.round(c.sat)}%, ${Math.round(c.lig)}%)  —  right-click to remove`;
+    div.addEventListener('click', () => {
+      paintHue = c.hue; paintSat = c.sat; paintLig = c.lig;
+      renderColorWheel();
+      updateColorPreview();
+      updateStatus();
+    });
+    div.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      colorPalette.splice(i, 1);
+      renderSwatches();
+    });
+    grid.appendChild(div);
+  });
+}
+
+document.getElementById('add-swatch-btn').addEventListener('click', () => {
+  if (colorPalette.length >= PALETTE_MAX) colorPalette.shift();
+  colorPalette.push({ hue: paintHue, sat: paintSat, lig: paintLig });
+  renderSwatches();
+});
+
+// ── Tool UI ───────────────────────────────────────────────────────
+function updateToolUI() {
+  canvas.classList.toggle('cursor-picker', activeTool === 'picker');
+}
+
+// ── Build palette UI ──────────────────────────────────────────────
+const paletteEl = document.getElementById('palette');
+
+LAYERS.forEach((layer, li) => {
+  const row = document.createElement('div');
+  row.className = 'layer-row' + (li === 0 ? ' active' : '');
+  row.dataset.layer = li;
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'layer-name';
+  nameEl.style.color = `hsl(${layer.hue},60%,55%)`;
+  nameEl.textContent = layer.name;
+  row.appendChild(nameEl);
+
+  const charsEl = document.createElement('div');
+  charsEl.className = 'layer-chars';
+
+  layer.chars.forEach((ch, ci) => {
+    const btn = document.createElement('button');
+    btn.className = 'char-btn' + (li === 0 && ci === 4 ? ' active-char' : '');
+    btn.dataset.layer  = li;
+    btn.dataset.charidx = ci;
+    btn.style.color = `hsl(${layer.hue},70%,${38 + ci * 9}%)`;
+    btn.textContent = ch;
+    btn.title = `Layer ${li} · char ${ci}`;
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      setActiveLayer(li, ci);
+    });
+    charsEl.appendChild(btn);
+  });
+
+  row.appendChild(charsEl);
+  row.addEventListener('click', () => {
+    // Clicking the row selects the layer, keeping current charIdx or defaulting to dense end
+    const newCharIdx = activeLayer === li ? activeCharIdx : Math.round(activeIntensity * (layer.chars.length - 1));
+    setActiveLayer(li, newCharIdx);
+  });
+  paletteEl.appendChild(row);
+});
+
+function setActiveLayer(li, ci) {
+  activeLayer   = li;
+  activeCharIdx = ci;
+  activeIntensity = ci / (LAYERS[li].chars.length - 1);
+
+  // Update palette UI
+  document.querySelectorAll('.layer-row').forEach((r, idx) => {
+    r.classList.toggle('active', idx === li);
+  });
+  document.querySelectorAll('.char-btn').forEach(btn => {
+    btn.classList.toggle('active-char',
+      parseInt(btn.dataset.layer) === li && parseInt(btn.dataset.charidx) === ci);
+  });
+
+  updateStatus();
+}
+
+// ── Brush size slider ─────────────────────────────────────────────
+document.getElementById('brush-slider').addEventListener('input', e => {
+  brushSize = parseInt(e.target.value);
+  document.getElementById('brush-val').textContent = brushSize;
+  updateStatus();
+});
+
+// ── Tool buttons ──────────────────────────────────────────────────
+document.querySelectorAll('[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeTool = btn.dataset.tool;
+    document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateToolUI();
+    updateStatus();
+  });
+});
+
+
+// ── New file ──────────────────────────────────────────────────────
+function resetToBlank() {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  grid.fill(null);
+  openFileHandle = null;
+  currentFilename = 'unicode-grid.json';
+  markClean();
+  renderGrid();
+  updateStatus();
+}
+
+function newFile() {
+  if (isDirty) {
+    document.getElementById('confirm-modal').classList.add('visible');
+  } else {
+    resetToBlank();
+  }
+}
+
+document.getElementById('new-btn').addEventListener('click', newFile);
+
+document.getElementById('confirm-cancel-btn').addEventListener('click', () => {
+  document.getElementById('confirm-modal').classList.remove('visible');
+});
+
+document.getElementById('confirm-discard-btn').addEventListener('click', () => {
+  document.getElementById('confirm-modal').classList.remove('visible');
+  resetToBlank();
+});
+
+document.getElementById('confirm-save-btn').addEventListener('click', async () => {
+  document.getElementById('confirm-modal').classList.remove('visible');
+  await saveFile();
+  resetToBlank();
+});
+
+// ── Save / Load JSON ──────────────────────────────────────────────
+let openFileHandle = null;   // FileSystemFileHandle when opened via File System Access API
+let currentFilename = 'unicode-grid.json';
+
+function buildSaveJSON() {
+  const cells = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = grid[r * COLS + c];
+      if (cell) cells.push({ r, c, ...cell });
+    }
+  }
+  const session = {
+    paintHue, paintSat, paintLig,
+    activeLayer, activeCharIdx,
+    brushSize, activeTool,
+    colorPalette: colorPalette.map(c => ({ hue: Math.round(c.hue), sat: Math.round(c.sat), lig: Math.round(c.lig) }))
+  };
+  return JSON.stringify({ version: 2, cols: COLS, rows: ROWS, session, cells }, null, 2);
+}
+
+function applyLoadedData(data) {
+  if (data.cols !== COLS || data.rows !== ROWS) {
+    alert(`Incompatible grid: file is ${data.cols}×${data.rows}, editor is ${COLS}×${ROWS}.`);
+    return false;
+  }
+  saveUndoSnapshot();
+  grid.fill(null);
+  for (const { r, c, layer, charIdx, intensity, mono, hue, sat, lig } of data.cells) {
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      grid[r * COLS + c] = { layer, charIdx, intensity, mono, hue, sat, lig };
+    }
+  }
+  const s = data.session;
+  if (s) {
+    if (s.paintHue != null) { paintHue = s.paintHue; paintSat = s.paintSat; paintLig = s.paintLig; }
+    if (Array.isArray(s.colorPalette)) { colorPalette = s.colorPalette; renderSwatches(); }
+    if (s.activeLayer != null) setActiveLayer(s.activeLayer, s.activeCharIdx ?? 0);
+    if (s.brushSize) {
+      brushSize = s.brushSize;
+      document.getElementById('brush-slider').value = brushSize;
+      document.getElementById('brush-val').textContent = brushSize;
+    }
+    if (s.activeTool) {
+      activeTool = s.activeTool;
+      document.querySelectorAll('[data-tool]').forEach(b =>
+        b.classList.toggle('active', b.dataset.tool === activeTool));
+      updateToolUI();
+    }
+    renderColorWheel();
+    updateColorPreview();
+  }
+  markClean();
+  renderGrid();
+  updateStatus();
+  return true;
+}
+
+async function saveFile() {
+  const json = buildSaveJSON();
+  if (openFileHandle) {
+    try {
+      const writable = await openFileHandle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      markClean();
+      return;
+    } catch (err) {
+      // If permission denied, fall through to download
+      console.warn('Overwrite failed, falling back to download:', err);
+    }
+  }
+  // Fallback: download
+  const link = document.createElement('a');
+  link.download = currentFilename;
+  link.href = 'data:application/json,' + encodeURIComponent(json);
+  link.click();
+  markClean();
+}
+
+async function openFile() {
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+        multiple: false
+      });
+      openFileHandle = handle;
+      currentFilename = handle.name;
+      const file = await handle.getFile();
+      const text = await file.text();
+      const data = JSON.parse(text);
+      applyLoadedData(data);
+    } catch (err) {
+      if (err.name !== 'AbortError') alert('Error opening file.');
+    }
+  } else {
+    // Fallback: hidden file input
+    document.getElementById('open-input').click();
+  }
+}
+
+document.getElementById('save-btn').addEventListener('click', saveFile);
+document.getElementById('open-btn').addEventListener('click', openFile);
+
+document.getElementById('open-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  openFileHandle = null;
+  currentFilename = file.name;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      applyLoadedData(data);
+    } catch {
+      alert('Invalid JSON file.');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ── Save / Load Palette file ──────────────────────────────────────
+document.getElementById('save-palette-btn').addEventListener('click', () => {
+  const json = JSON.stringify({ version: 1, palette: colorPalette }, null, 2);
+  const link = document.createElement('a');
+  link.download = 'palette.json';
+  link.href = 'data:application/json,' + encodeURIComponent(json);
+  link.click();
+});
+
+document.getElementById('load-palette-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data.palette)) throw new Error();
+      colorPalette = data.palette.slice(0, PALETTE_MAX);
+      renderSwatches();
+    } catch { alert('Invalid palette file.'); }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ── Export PNG ────────────────────────────────────────────────────
+document.getElementById('png-btn').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'unicode-grid.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+
+// ── Mask Mode ─────────────────────────────────────────────────────
+document.getElementById('mask-btn').addEventListener('click', () => {
+  maskMode = !maskMode;
+  document.getElementById('mask-btn').classList.toggle('active', maskMode);
+});
+
+// ── Clear ─────────────────────────────────────────────────────────
+document.getElementById('clear-btn').addEventListener('click', () => {
+  saveUndoSnapshot();
+  grid.fill(null);
+  markDirty();
+  renderGrid();
+  updateStatus();
+});
+
+// ── Status bar ────────────────────────────────────────────────────
+function updateStatus() {
+  const layer   = LAYERS[activeLayer];
+  const toolStr = activeTool === 'erase' ? 'erase' : activeTool === 'picker' ? 'pick' : 'draw';
+  const charStr = layer.chars[activeCharIdx];
+  const colorStr = activeTool === 'draw'
+    ? `hsl(${Math.round(paintHue)}°,${Math.round(paintSat)}%,${Math.round(paintLig)}%)` : '';
+  const hoverStr = (hoverCol >= 0 && hoverRow >= 0)
+    ? `  ·  col ${hoverCol} row ${hoverRow}`
+    : '';
+  document.getElementById('status-text').textContent =
+    `${toolStr} · ${layer.name} · char ${charStr}${colorStr ? ' · ' + colorStr : ''} · α ${activeIntensity.toFixed(1)} · brush ${brushSize}${hoverStr}`;
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey;
+
+  // Cmd/Ctrl+Shift+Z — redo
+  if (mod && e.shiftKey && e.key === 'z') {
+    e.preventDefault();
+    redo();
+    return;
+  }
+  // Cmd/Ctrl+Z — undo
+  if (mod && e.key === 'z') {
+    e.preventDefault();
+    undo();
+    return;
+  }
+
+  if (e.target.tagName === 'TEXTAREA') return;
+
+  switch (e.key) {
+    case 'd': case 'D':
+      document.getElementById('tool-draw').click(); break;
+    case 'e': case 'E':
+      document.getElementById('tool-erase').click(); break;
+    case 'm': case 'M':
+      document.getElementById('mask-btn').click(); break;
+    case 'k': case 'K':
+      document.getElementById('tool-picker').click(); break;
+    case 'Delete': case 'Backspace':
+      saveUndoSnapshot(); grid.fill(null); markDirty(); renderGrid(); updateStatus();
+      break;
+    case 'Escape':
+      document.getElementById('confirm-modal').classList.remove('visible');
+      break;
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────
+scaleLayout();
+updateToolUI();
+renderColorWheel();
+updateColorPreview();
+renderSwatches();
+updateStatus();
+renderGrid();
+</script>
+</body>
+</html>
