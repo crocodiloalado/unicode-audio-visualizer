@@ -35,6 +35,20 @@
     flex: 1;
   }
 
+  .topbar-sep {
+    width: 0.5px; height: 16px;
+    background: rgba(255,255,255,0.15);
+    flex-shrink: 0;
+  }
+  .topbar-icon {
+    font-size: 15px;
+    padding: 4px 8px;
+    letter-spacing: 0;
+    text-transform: none;
+    min-width: 30px;
+  }
+  .topbar-icon:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+
   /* ── Main area ── */
   #main {
     position: fixed;
@@ -69,21 +83,25 @@
   #scale-wrap.portrait #panel {
     flex-direction: row;
     flex-wrap: wrap;
-    width: 900px;
+    /* width set dynamically in scaleLayout() to match canvas */
     gap: 8px 20px;
   }
-  #scale-wrap.portrait #panel > div { flex: 1; min-width: 120px; }
+  #scale-wrap.portrait #panel > div { flex: 1; min-width: 120px; align-self: flex-start; }
   #scale-wrap.portrait .section-label { font-size: 8px; margin-bottom: 3px; }
+  #scale-wrap.portrait .btn-group { flex-direction: column; align-items: center; }
+  #scale-wrap.portrait .btn-group .tool-btn { flex: none; }
+  #scale-wrap.portrait .layer-name { display: none; }
 
   @media (pointer: coarse) { #kb-hints { display: none; } }
 
   /* ── Right panel ── */
   #panel {
-    width: 220px;
+    width: 180px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-x: hidden;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.15) transparent;
@@ -169,9 +187,10 @@
   .tool-btn.active { border-color: rgba(255,255,255,0.7); color: #fff; background: rgba(255,255,255,0.08); }
   .tool-icon { flex: none; width: 28px; padding: 5px 0; font-size: 14px; text-transform: none; letter-spacing: 0; }
 
-  /* ── Brush slider ── */
-  #brush-row { display: flex; align-items: center; gap: 8px; }
+  /* ── Brush size — stepper (portrait) + slider (landscape) ── */
+  #brush-row { display: flex; align-items: center; gap: 6px; }
   #brush-slider {
+    display: none; /* shown only in landscape via rule below */
     flex: 1; -webkit-appearance: none; appearance: none;
     height: 2px; background: rgba(255,255,255,0.15);
     border-radius: 1px; outline: none; cursor: pointer;
@@ -181,7 +200,25 @@
     width: 12px; height: 12px;
     border-radius: 50%; background: rgba(255,255,255,0.8); cursor: pointer;
   }
-  #brush-val { font-size: 10px; color: rgba(255,255,255,0.4); width: 16px; text-align: right; }
+  /* Landscape: slider visible, stepper hidden */
+  #scale-wrap:not(.portrait) #brush-slider { display: block; }
+  #scale-wrap:not(.portrait) .brush-step-btn { display: none; }
+  .brush-step-btn {
+    width: 22px; height: 22px;
+    background: transparent;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.55);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+    transition: all 0.1s;
+    flex-shrink: 0;
+  }
+  .brush-step-btn:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+  #brush-val { font-size: 11px; color: rgba(255,255,255,0.6); width: 18px; text-align: center; }
 
   /* ── Color Wheel ── */
   #color-wheel-section {
@@ -193,21 +230,21 @@
     align-self: center;
     cursor: crosshair;
     display: block;
-    width: 90px;
-    height: 90px;
+    width: 64px;
+    height: 64px;
     image-rendering: auto;
   }
   #color-preview-row {
     align-self: center;
-    width: 90px;
+    width: 64px;
     display: flex;
     align-items: center;
     gap: 5px;
   }
   #color-preview {
     flex: 1;
-    height: 16px;
-    border-radius: 5px;
+    height: 10px;
+    border-radius: 3px;
     border: 0.5px solid rgba(255,255,255,0.15);
     transition: background 0.1s;
   }
@@ -225,8 +262,6 @@
   }
   #add-swatch-btn:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
   #swatches-wrap {
-    align-self: center;
-    width: 90px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -249,16 +284,10 @@
   #palette-file-btns {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 5px;
   }
-  .palette-file-label {
-    font-size: 8px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.2);
-    flex-shrink: 0;
-  }
-  .palette-file-sep { color: rgba(255,255,255,0.12); font-size: 8px; }
+  .palette-file-label, .palette-file-sep { display: none; }
   #palette-file-btns button, #palette-file-btns label {
     background: transparent;
     border: 0.5px solid rgba(255,255,255,0.15);
@@ -384,6 +413,9 @@
 <!-- Top bar -->
 <div id="topbar">
   <h1>Unicode Grid Editor<span id="dirty-dot" title="Unsaved changes"></span></h1>
+  <button class="action-btn topbar-icon" id="undo-btn" title="Undo (⌘Z)" disabled>↩</button>
+  <button class="action-btn topbar-icon" id="redo-btn" title="Redo (⌘⇧Z)" disabled>↪</button>
+  <span class="topbar-sep"></span>
   <button class="action-btn" id="new-btn">New</button>
   <button class="action-btn" id="save-btn">Save</button>
   <button class="action-btn" id="open-btn">Open</button>
@@ -413,7 +445,7 @@
         <button class="tool-btn tool-icon active" id="tool-draw"   data-tool="draw"   title="Draw (D)">✏</button>
         <button class="tool-btn tool-icon"        id="tool-erase"  data-tool="erase"  title="Erase (E)">⌫</button>
         <button class="tool-btn tool-icon"        id="tool-picker" data-tool="picker" title="Pick (K)">◎</button>
-        <button class="tool-btn" id="mask-btn" title="Mask Mode (M)">Mask</button>
+        <button class="tool-btn tool-icon" id="mask-btn" title="Mask Mode (M)">M</button>
       </div>
     </div>
 
@@ -440,8 +472,10 @@
     <div>
       <div class="section-label">Brush Size</div>
       <div id="brush-row">
-        <input type="range" id="brush-slider" min="1" max="10" step="1" value="1">
+        <button class="brush-step-btn" id="brush-dec" title="Diminuir (scroll ↓)">−</button>
         <div id="brush-val">1</div>
+        <button class="brush-step-btn" id="brush-inc" title="Aumentar (scroll ↑)">+</button>
+        <input type="range" id="brush-slider" min="1" max="10" step="1" value="1">
       </div>
     </div>
   </div>
@@ -554,6 +588,12 @@ function saveUndoSnapshot() {
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   redoStack.length = 0; // new action breaks redo chain
   markDirty();
+  updateUndoUI();
+}
+
+function updateUndoUI() {
+  document.getElementById('undo-btn').disabled = undoStack.length === 0;
+  document.getElementById('redo-btn').disabled = redoStack.length === 0;
 }
 
 function undo() {
@@ -564,6 +604,7 @@ function undo() {
   markDirty();
   renderGrid();
   updateStatus();
+  updateUndoUI();
 }
 
 function redo() {
@@ -574,29 +615,39 @@ function redo() {
   markDirty();
   renderGrid();
   updateStatus();
+  updateUndoUI();
 }
 
 // ── Responsive layout scale ───────────────────────────────────────
 function scaleLayout() {
   const portrait = window.innerWidth < window.innerHeight;
-  const wrap     = document.getElementById('scale-wrap');
+  const wrap  = document.getElementById('scale-wrap');
+  const panel = document.getElementById('panel');
   wrap.classList.toggle('portrait', portrait);
-
-  // Temporarily reset transform to measure natural sizes
-  wrap.style.transform = 'none';
-  const panelH = document.getElementById('panel').offsetHeight;
+  document.getElementById('kb-hints').style.display = portrait ? 'none' : '';
 
   const canvasW = COLS * CELL_W;
   const canvasH = ROWS * CELL_H;
-  const nativeW = portrait ? canvasW              : canvasW + 220 + 24;
+
+  // Set panel width BEFORE measuring offsetHeight so nativeW/H are accurate
+  if (portrait) {
+    panel.style.width    = canvasW + 'px';
+    panel.style.maxHeight = '';         // horizontal bar — no height cap
+  } else {
+    panel.style.width    = '';
+    panel.style.maxHeight = `${canvasH}px`; // vertical sidebar — scroll if needed
+  }
+
+  // Temporarily reset transform to measure natural sizes
+  wrap.style.transform = 'none';
+  const panelH = panel.offsetHeight;
+
+  const nativeW = portrait ? canvasW              : canvasW + 180 + 24;
   const nativeH = portrait ? canvasH + panelH + 24 : Math.max(canvasH, panelH);
   const availW  = window.innerWidth  - 32;
   const availH  = window.innerHeight - 38 - 28 - 16;
   const scale   = Math.min(availW / nativeW, availH / nativeH, 2.0);
   wrap.style.transform = `scale(${scale})`;
-
-  // Give the panel a max-height so it scrolls if still needed after scaling
-  document.getElementById('panel').style.maxHeight = `${canvasH}px`;
 }
 
 window.addEventListener('resize', scaleLayout);
@@ -785,9 +836,8 @@ canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const delta = e.deltaY > 0 ? -1 : 1;
   brushSize = Math.max(1, Math.min(10, brushSize + delta));
-  const slider = document.getElementById('brush-slider');
-  slider.value = brushSize;
   document.getElementById('brush-val').textContent = brushSize;
+  document.getElementById('brush-slider').value = brushSize;
   renderGrid();
   updateStatus();
 }, { passive: false });
@@ -1021,7 +1071,15 @@ function setActiveLayer(li, ci) {
   updateStatus();
 }
 
-// ── Brush size slider ─────────────────────────────────────────────
+// ── Brush size ────────────────────────────────────────────────────
+function changeBrush(delta) {
+  brushSize = Math.max(1, Math.min(10, brushSize + delta));
+  document.getElementById('brush-val').textContent = brushSize;
+  document.getElementById('brush-slider').value = brushSize;
+  updateStatus();
+}
+document.getElementById('brush-dec').addEventListener('click', () => changeBrush(-1));
+document.getElementById('brush-inc').addEventListener('click', () => changeBrush(+1));
 document.getElementById('brush-slider').addEventListener('input', e => {
   brushSize = parseInt(e.target.value);
   document.getElementById('brush-val').textContent = brushSize;
@@ -1050,6 +1108,7 @@ function resetToBlank() {
   markClean();
   renderGrid();
   updateStatus();
+  updateUndoUI();
 }
 
 function newFile() {
@@ -1060,6 +1119,8 @@ function newFile() {
   }
 }
 
+document.getElementById('undo-btn').addEventListener('click', undo);
+document.getElementById('redo-btn').addEventListener('click', redo);
 document.getElementById('new-btn').addEventListener('click', newFile);
 
 document.getElementById('confirm-cancel-btn').addEventListener('click', () => {
@@ -1117,8 +1178,8 @@ function applyLoadedData(data) {
     if (s.activeLayer != null) setActiveLayer(s.activeLayer, s.activeCharIdx ?? 0);
     if (s.brushSize) {
       brushSize = s.brushSize;
-      document.getElementById('brush-slider').value = brushSize;
       document.getElementById('brush-val').textContent = brushSize;
+      document.getElementById('brush-slider').value = brushSize;
     }
     if (s.activeTool) {
       activeTool = s.activeTool;
