@@ -5,6 +5,23 @@ Versions correspond to the files in the `versions/` directory.
 
 ---
 
+## [editor] — Layout responsivo, undo/redo e melhorias de UI
+
+### Added
+- **Botões Undo / Redo (↩ ↪)** na top bar, separados dos botões de arquivo por uma linha vertical sutil. Ficam desabilitados (opacidade 20%) enquanto a pilha está vazia e refletem o estado em tempo real a cada pincelada, undo, redo ou novo arquivo.
+- **Brush size responsivo**: em landscape (painel lateral) o controle é um slider horizontal que usa a largura disponível do painel; em portrait (barra inferior) um stepper compacto `[−][n][+]`. Os dois controles coexistem no HTML; CSS alterna entre eles via `#scale-wrap:not(.portrait)`.
+
+### Changed
+- **Layout portrait corrigido**: o painel horizontal abaixo do canvas tinha `width: 900px` fixo no CSS, enquanto o canvas mede ~540 px. O cálculo de escala em `scaleLayout()` usava o tamanho errado como `nativeW`, causando sobreposição e desalinhamento. Corrigido: a largura do painel é agora definida via JS (`panel.style.width = canvasW + 'px'`) antes de medir o `offsetHeight`, garantindo que a escala CSS seja calculada com as dimensões reais.
+- **Botões de ferramenta em portrait**: em janelas portrait os quatro botões (✏ ⌫ ◎ M) agora empilham verticalmente e ficam centralizados na seção, sem sobreposição com a seção de pincéis.
+- **Overflow da seção Brushes corrigido**: os `.layer-name` (texto "CIRCLES", "SHADING"…) são ocultados em portrait via CSS, reduzindo a largura real de cada `.layer-row` de ~168 px para ~118 px, eliminando o overflow de 48 px que invadia a seção de ferramentas.
+- **Botão Mask**: texto "Mask" substituído por "M" com estilo `tool-icon` (28 × 28 px), consistente com os demais botões de ferramenta.
+- **Color wheel**: reduzido de 90 px → 64 px. Barra de preview de cor: 16 px → 10 px de altura. Painel lateral: 220 px → 180 px. `nativeW` atualizado no cálculo de escala.
+- **Palette Save / Load**: removido o label "Palette |" (redundante); os botões Save e Load agora ficam centralizados dentro da seção via `justify-content: center`. `#swatches-wrap` não tem mais largura fixa, estica com o painel.
+- **Atalhos de teclado**: ocultos na status bar em portrait mode (janela mais estreita), onde não há espaço útil para exibi-los.
+
+---
+
 ## [v08] — Sistema de cores Melódico v3 (base hue única por modo)
 
 ### Changed
